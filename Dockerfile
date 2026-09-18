@@ -1,4 +1,4 @@
-FROM alpine:3.24.1 AS builder
+FROM alpine:3.24.2 AS builder
 
 RUN apk add --no-cache \
     build-base \
@@ -6,7 +6,7 @@ RUN apk add --no-cache \
     perl-app-cpanminus \
  && cpanm --notest JSON::Schema::Modern
 
-FROM alpine:3.24.1
+FROM alpine:3.24.2
 WORKDIR /harness
 
 RUN apk add --no-cache \
