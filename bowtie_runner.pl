@@ -28,8 +28,7 @@ sub resource_pointers_for {
             my $id = $node->{'$id'};
             $current =
               length $base
-              ? Mojo::URL->new($id)->to_abs( Mojo::URL->new($base) )
-              ->to_string
+              ? Mojo::URL->new($id)->to_abs( Mojo::URL->new($base) )->to_string
               : $id;
             $pointers{$current} = $pointer;
         }
@@ -47,7 +46,7 @@ sub keyword_location_for {
     if ( defined $absolute && length $absolute ) {
         my $hash = index $absolute, '#';
         if ( $hash >= 0 ) {
-            my $base  = substr $absolute, 0, $hash;
+            my $base = substr $absolute, 0, $hash;
             $fragment = substr $absolute, $hash + 1;
             $fragment = $pointers->{$base} . $fragment
               if length $base && exists $pointers->{$base};
@@ -71,10 +70,12 @@ sub bowtie_annotations {
           {
             keyword          => $annotation->keyword,
             instanceLocation => $annotation->instance_location,
-            keywordLocation  =>
-              keyword_location_for( $annotation->absolute_keyword_location,
-                $annotation->keyword_location, $pointers ),
-            annotation       => $annotation->annotation,
+            keywordLocation  => keyword_location_for(
+                $annotation->absolute_keyword_location,
+                $annotation->keyword_location,
+                $pointers
+            ),
+            annotation => $annotation->annotation,
           };
     }
     return \@annotations;
@@ -145,7 +146,8 @@ my %cmds = (
         my @results = ();
         foreach my $test ( @{ $case->{tests} } ) {
             try {
-                my $result = $want_annotations
+                my $result =
+                  $want_annotations
                   ? $js->evaluate( $test->{instance}, $case->{schema},
                     { collect_annotations => 1 } )
                   : $js->evaluate( $test->{instance}, $case->{schema} );
@@ -153,8 +155,8 @@ my %cmds = (
                   $want_annotations
                   ? {
                     valid       => $result->valid,
-                    annotations => bowtie_annotations( $result,
-                      $resource_pointers ),
+                    annotations =>
+                      bowtie_annotations( $result, $resource_pointers ),
                   }
                   : { valid => $result->valid };
             }
