@@ -5,6 +5,7 @@ use warnings;
 
 use JSON::Schema::Modern;
 use Mojo::JSON qw(decode_json encode_json false true);
+use Mojo::URL;
 use Try::Tiny;
 
 my %dialect = (
@@ -14,6 +15,68 @@ my %dialect = (
     'http://json-schema.org/draft-06/schema#'      => 'draft6',
     'http://json-schema.org/draft-04/schema#'      => 'draft4',
 );
+
+sub resource_pointers_for {
+    my ($schema) = @_;
+    my %pointers;
+    local *walk = sub {
+        my ( $node, $pointer, $base ) = @_;
+        return if ref $node ne 'HASH';
+        my $current = $base;
+        if ( defined $node->{'$id'} && !ref $node->{'$id'} ) {
+            my $id = $node->{'$id'};
+            $current =
+              length $base
+              ? Mojo::URL->new($id)->to_abs( Mojo::URL->new($base) )->to_string
+              : $id;
+            $pointers{$current} = $pointer;
+        }
+        for my $key ( keys %$node ) {
+            walk( $node->{$key}, "$pointer/$key", $current );
+        }
+    };
+    walk( $schema, '', '' );
+    return \%pointers;
+}
+
+sub keyword_location_for {
+    my ( $annotation, $pointers ) = @_;
+    my $absolute  = $annotation->absolute_keyword_location;
+    my $evaluated = $annotation->keyword_location;
+    my $fragment;
+    if ( defined $absolute && length $absolute ) {
+        my $hash = index $absolute, '#';
+        if ( $hash >= 0 ) {
+            my $base = substr $absolute, 0, $hash;
+            $fragment = substr $absolute, $hash + 1;
+            $fragment = $pointers->{$base} . $fragment
+              if length $base && exists $pointers->{$base};
+        }
+        else {
+            $fragment = $absolute;
+        }
+    }
+    else {
+        $fragment = defined $evaluated ? $evaluated : '';
+    }
+    return "#$fragment";
+}
+
+sub bowtie_annotations {
+    my ( $result, $pointers ) = @_;
+    return [] if !$result->valid;
+    my @annotations;
+    for my $annotation ( $result->annotations ) {
+        push @annotations,
+          {
+            keyword          => $annotation->keyword,
+            instanceLocation => $annotation->instance_location,
+            keywordLocation  => keyword_location_for( $annotation, $pointers ),
+            annotation       => $annotation->annotation,
+          };
+    }
+    return \@annotations;
+}
 
 my $started = 0;
 my $schema;
@@ -61,6 +124,8 @@ my %cmds = (
         die 'Not started!' unless $started;
         my $js = JSON::Schema::Modern->new( specification_version => $schema );
         my $case = $request->{case};
+        my $want_annotations =
+          exists $request->{output} && $request->{output} eq 'annotations';
         while ( my ( $url, $content ) = each %{ $case->{registry} } ) {
             try {
                 $js->add_schema( $url, $content );
@@ -73,11 +138,22 @@ my %cmds = (
                 };
             };
         }
+        my $resource_pointers =
+          $want_annotations ? resource_pointers_for( $case->{schema} ) : undef;
         my @results = ();
         foreach my $test ( @{ $case->{tests} } ) {
             try {
+                my $result =
+                  $js->evaluate( $test->{instance}, $case->{schema},
+                    { collect_annotations => $want_annotations } );
                 push @results,
-                  $js->evaluate( $test->{instance}, $case->{schema} );
+                  $want_annotations
+                  ? {
+                    valid       => $result->valid,
+                    annotations =>
+                      bowtie_annotations( $result, $resource_pointers ),
+                  }
+                  : { valid => $result->valid };
             }
             catch {
                 return {
