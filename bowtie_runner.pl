@@ -76,8 +76,9 @@ my %cmds = (
         my @results = ();
         foreach my $test ( @{ $case->{tests} } ) {
             try {
-                push @results,
+                my $result =
                   $js->evaluate( $test->{instance}, $case->{schema} );
+                push @results, { valid => $result->valid };
             }
             catch {
                 return {
